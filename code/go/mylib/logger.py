@@ -22,7 +22,11 @@ class GameMeta:
     mode: str
     started_at: str
     finished_at: Optional[str] = None
-    result: Optional[str] = None  # 可写“黑胜”“白胜”“和棋”“中止”等自由文本
+    result: Optional[str] = None  # 自由文本，如 “black_win”“white_win”“draw”
+    winner: Optional[str] = None  # "black" | "white" | "draw" | None
+    black_count: Optional[int] = None
+    white_count: Optional[int] = None
+    end_reason: Optional[str] = None  # 如 "no_legal_moves" / "manual_end" 等
 
 
 class GameLogger:
@@ -33,7 +37,7 @@ class GameLogger:
     - 可通过 load_log 读取并用于重放
     """
 
-    def __init__(self, log_dir: str = "records") -> None:
+    def __init__(self, log_dir: str = "record") -> None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.log_dir = os.path.join(base_dir, log_dir)
         os.makedirs(self.log_dir, exist_ok=True)
@@ -59,12 +63,28 @@ class GameLogger:
             x, y = point
         self.moves.append(MoveRecord(x=x, y=y, player=player))
 
-    def end_game(self, result: Optional[str] = None) -> None:
+    def end_game(
+        self,
+        result: Optional[str] = None,
+        *,
+        winner: Optional[str] = None,
+        black_count: Optional[int] = None,
+        white_count: Optional[int] = None,
+        end_reason: Optional[str] = None,
+    ) -> None:
         if self.meta is None:
             return
         self.meta.finished_at = datetime.now().isoformat(timespec="seconds")
         if result is not None:
             self.meta.result = result
+        if winner is not None:
+            self.meta.winner = winner
+        if black_count is not None:
+            self.meta.black_count = black_count
+        if white_count is not None:
+            self.meta.white_count = white_count
+        if end_reason is not None:
+            self.meta.end_reason = end_reason
 
     def save(self) -> str:
         if self.meta is None:

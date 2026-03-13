@@ -19,15 +19,15 @@ from mylib.rules import GoGame
 # - "ai_black_human_white" : 电脑执黑，用户执白
 # - "human_vs_human"       : 两个用户轮流下棋
 # - "ai_vs_ai"             : 两个电脑轮流下棋
-GAME_MODE = MODE_HUMAN_BLACK_AI_WHITE
-
+# GAME_MODE = MODE_HUMAN_BLACK_AI_WHITE
+GAME_MODE = MODE_AI_VS_AI
 # 默认棋盘大小（已选：19 路）
 BOARD_SIZE = 19
 
 
 def main() -> None:
     game = GoGame(size=BOARD_SIZE)
-    logger = GameLogger(log_dir="records")
+    logger = GameLogger(log_dir="record")
 
     root = tk.Tk()
     GoGUI(root, game, mode=GAME_MODE, logger=logger)

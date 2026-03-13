@@ -51,6 +51,7 @@ class GoGame:
         return res
 
     # 提子与气
+        # 提子与气
     def _collect_group(
         self, x: int, y: int, visited: Optional[set[Point]] = None
     ) -> Tuple[set[Point], set[Point]]:
@@ -80,16 +81,74 @@ class GoGame:
         for x, y in group:
             self.set(x, y, 0)
 
+    def _would_be_suicide(self, x: int, y: int, player: Stone) -> bool:
+        """
+        判断在 (x, y) 为 player 落子后，考虑吃掉周围对方棋子之后，
+        这一整块己方棋是否仍然没有气；若没有气，则视为自杀棋。
+        """
+        # 拷贝当前棋盘做模拟，不修改真实棋盘
+        temp_board = [row[:] for row in self.board]
+        temp_board[y][x] = player
+        opponent: Stone = 1 if player == 2 else 2
+
+        def get_board(px: int, py: int) -> Stone:
+            return temp_board[py][px]
+
+        def collect_group(
+            px: int, py: int, visited: Optional[set[Point]] = None
+        ) -> Tuple[set[Point], set[Point]]:
+            if visited is None:
+                visited = set()
+            color = get_board(px, py)
+            if color == 0:
+                return set(), set()
+            group: set[Point] = set()
+            liberties: set[Point] = set()
+            stack: List[Point] = [(px, py)]
+            visited.add((px, py))
+            while stack:
+                cx, cy = stack.pop()
+                group.add((cx, cy))
+                for nx, ny in self.neighbors(cx, cy):
+                    stone = get_board(nx, ny)
+                    if stone == 0:
+                        liberties.add((nx, ny))
+                    elif stone == color and (nx, ny) not in visited:
+                        visited.add((nx, ny))
+                        stack.append((nx, ny))
+            return group, liberties
+
+        # 先模拟提掉周围被吃掉的对方棋块
+        visited_opp: set[Point] = set()
+        for nx, ny in self.neighbors(x, y):
+            if self.is_on_board(nx, ny) and get_board(nx, ny) == opponent:
+                if (nx, ny) in visited_opp:
+                    continue
+                group, libs = collect_group(nx, ny, visited_opp)
+                if not libs:
+                    for gx, gy in group:
+                        temp_board[gy][gx] = 0
+
+        # 再检查当前这块己方棋是否还有气
+        _, libs_self = collect_group(x, y, set())
+        return not libs_self
+
     # 合法性与落子
     def is_legal_move(self, x: int, y: int, player: Optional[Stone] = None) -> bool:
-        """只检查是否在棋盘、是否为空位。高级规则（自杀、打劫）暂不限制。"""
+        """
+        检查落子合法性：
+        - 在棋盘内
+        - 当前位置为空
+        - 不允许自杀棋（在考虑吃子之后，己方整块仍无气则视为不合法）
+        """
         if player is None:
             player = self.current_player
         if not self.is_on_board(x, y):
             return False
         if self.get(x, y) != 0:
             return False
-        # 如需自杀禁入等，可在此处增加检查逻辑。
+        if self._would_be_suicide(x, y, player):
+            return False
         return True
 
     def play_move(self, x: Optional[int], y: Optional[int]) -> bool:
@@ -103,13 +162,10 @@ class GoGame:
             self.move_history.append((None, self.current_player))
             self._switch_player()
             return True
-
         if not self.is_legal_move(x, y, self.current_player):
             return False
-
         # 落子
         self.set(x, y, self.current_player)
-
         # 提走周围被吃的敌方棋块（无气）
         opponent: Stone = 1 if self.current_player == 2 else 2
         to_remove: set[Point] = set()
@@ -121,10 +177,8 @@ class GoGame:
                 group, libs = self._collect_group(nx, ny, visited)
                 if not libs:
                     to_remove.update(group)
-
         if to_remove:
             self._remove_group(to_remove)
-
         # 记录历史
         self.move_history.append(((x, y), self.current_player))
         self._switch_player()

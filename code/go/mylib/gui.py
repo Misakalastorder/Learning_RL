@@ -25,6 +25,7 @@ class GoGUI:
     - N：开始新对局
     - R：选择日志文件并重放对局
     - Q：结束当前对局并保存日志（若有）
+    - E：提前终止并按子数判胜负保存日志
     """
 
     def __init__(
@@ -65,6 +66,8 @@ class GoGUI:
         self.root.bind("<Key-R>", lambda e: self.replay_from_file())
         self.root.bind("<Key-q>", lambda e: self.end_game_and_save())
         self.root.bind("<Key-Q>", lambda e: self.end_game_and_save())
+        self.root.bind("<Key-e>", lambda e: self.end_game_by_count())
+        self.root.bind("<Key-E>", lambda e: self.end_game_by_count())
 
         if self.logger is not None and self.mode != MODE_REPLAY:
             self.logger.start_new_game(board_size=self.game.size, mode=self.mode)
@@ -74,6 +77,63 @@ class GoGUI:
 
         # 若是 AI 执黑，启动时先让 AI 落子
         self.root.after(200, self.maybe_ai_move)
+        # 启动后也检查是否一开始就无合法着手（极端情况/重放切换后）
+        self.root.after(250, self._auto_end_if_no_legal_moves)
+
+    def _count_stones(self) -> tuple[int, int]:
+        black = 0
+        white = 0
+        for y in range(self.game.size):
+            for x in range(self.game.size):
+                s = self.game.get(x, y)
+                if s == 1:
+                    black += 1
+                elif s == 2:
+                    white += 1
+        return black, white
+
+    def _determine_winner_by_count(self) -> tuple[str, str, int, int]:
+        black, white = self._count_stones()
+        if black > white:
+            return "black", "black_win", black, white
+        if white > black:
+            return "white", "white_win", black, white
+        return "draw", "draw", black, white
+
+    def _finish_game_and_save(self, *, end_reason: str) -> None:
+        if self.logger is None or self.mode == MODE_REPLAY:
+            self.quit_program()
+            return
+        winner, result, black, white = self._determine_winner_by_count()
+        self.logger.end_game(
+            result=result,
+            winner=winner,
+            black_count=black,
+            white_count=white,
+            end_reason=end_reason,
+        )
+        path = self.logger.save()
+        if path:
+            messagebox.showinfo(
+                "对局结束",
+                f"结果：{result}\n黑子：{black}  白子：{white}\n日志已保存到：\n{path}",
+            )
+        self.quit_program()
+
+    def _auto_end_if_no_legal_moves(self) -> None:
+        """
+        任何一方轮到自己走但没有合法着手时：自动结束对局并记录。
+        注意：这里按需求直接结束（不做围棋“弃手”规则）。
+        """
+        if self.mode == MODE_REPLAY:
+            return
+        if self.logger is None:
+            return
+        legal = self.game.get_legal_moves(self.game.current_player)
+        if not legal:
+            self.update_status("当前方无合法着手：对局自动结束并保存")
+            # 稍微延迟一下让状态栏可见
+            self.root.after(50, lambda: self._finish_game_and_save(end_reason="no_legal_moves"))
 
     # 坐标变换
     def board_to_pixel(self, x: int, y: int) -> tuple[int, int]:
@@ -135,6 +195,9 @@ class GoGUI:
         if self.mode == MODE_REPLAY:
             return  # 重放模式不允许点击落子
 
+        # 若轮到的人类一方已经无合法着手，直接结束对局
+        self._auto_end_if_no_legal_moves()
+
         point = self.pixel_to_board(event.x, event.y)
         if point is None:
             return
@@ -156,6 +219,9 @@ class GoGUI:
         self.draw_board()
         self.update_status()
 
+        # 检查下一手是否已无合法着手（自动结束）
+        self._auto_end_if_no_legal_moves()
+
         # 人类落子后轮到 AI 的情况
         self.root.after(200, self.maybe_ai_move)
 
@@ -176,6 +242,10 @@ class GoGUI:
             return
 
         current_player = self.game.current_player
+
+        # AI 回合开始前：若已无合法着手则直接结束
+        self._auto_end_if_no_legal_moves()
+
         is_ai_turn = False
         if self.mode == MODE_HUMAN_BLACK_AI_WHITE and current_player == 2:
             is_ai_turn = True
@@ -189,7 +259,9 @@ class GoGUI:
 
         move = get_ai_move(self.game, current_player)
         if move is None:
-            self.update_status("AI 无合法着手，可能对局已接近结束")
+            # 根据需求：任何一方无合法着手就直接结束并记录
+            self.update_status("AI 无合法着手：对局自动结束并保存")
+            self.root.after(50, lambda: self._finish_game_and_save(end_reason="no_legal_moves"))
             return
 
         x, y = move
@@ -203,6 +275,9 @@ class GoGUI:
         self.draw_board()
         self.update_status()
 
+        # 检查下一手是否无合法着手（自动结束）
+        self._auto_end_if_no_legal_moves()
+
         if self.mode == MODE_AI_VS_AI:
             # 连续自动下棋，给一个小延迟以便肉眼观察
             self.root.after(200, self.maybe_ai_move)
@@ -212,15 +287,19 @@ class GoGUI:
         if self.logger is None or self.mode == MODE_REPLAY:
             self.quit_program()
             return
-        self.logger.end_game(result="manually_ended")
-        path = self.logger.save()
-        if path:
-            messagebox.showinfo("保存完成", f"对局日志已保存到：\n{path}")
-        self.quit_program()
+        self._finish_game_and_save(end_reason="manual_end")
+
+    def end_game_by_count(self) -> None:
+        """
+        提前终止对局并按场上子数判胜负保存日志（E 键）。
+        """
+        if self.mode == MODE_REPLAY:
+            return
+        self._finish_game_and_save(end_reason="manual_end_by_count")
 
     def replay_from_file(self) -> None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        initial_dir = os.path.join(base_dir, "records")
+        initial_dir = os.path.join(base_dir, "record")
         if not os.path.isdir(initial_dir):
             initial_dir = base_dir
         path = filedialog.askopenfilename(
