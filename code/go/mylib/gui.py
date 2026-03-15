@@ -280,7 +280,8 @@ class GoGUI:
 
         if self.mode == MODE_AI_VS_AI:
             # 连续自动下棋，给一个小延迟以便肉眼观察
-            self.root.after(200, self.maybe_ai_move)
+            self.root.after(10, self.maybe_ai_move)
+            # self.root.after(200, self.maybe_ai_move)
 
     # 日志与重放
     def end_game_and_save(self) -> None:

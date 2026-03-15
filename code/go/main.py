@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import tkinter as tk
 
-
-
 from mylib.gui import (
     GoGUI,
     MODE_AI_BLACK_HUMAN_WHITE,
